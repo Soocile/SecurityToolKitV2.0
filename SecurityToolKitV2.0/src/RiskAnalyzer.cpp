@@ -21,21 +21,22 @@
  std::string RiskAnalyzer::calculateSHA256(const std::vector<uint8_t>& data) {
 
      HCRYPTPROV hProv = 0;
-     HCRYPTPROV hHash = 0;
+     HCRYPTHASH hHash = 0;
      DWORD cbHashSize = 32; // 32 bytes for SHA256
      DWORD dwHashLen = sizeof(DWORD);
      std::string hashStr;
 
-     if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
+     if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
 
          Logger::instance().log(LogLevel::ERROR, "CryptAcquireContext failed.");
          return "";
      }
 
      //create a hash object
+  
      if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash)) {
          CryptReleaseContext(hProv, 0);
-         Logger::instance().log(LogLevel::ERROR, "CryptCreateHash failed.");
+         Logger::instance().log(LogLevel::ERROR, "CryptCreateHash failed.  ");
          return "";
      }
 
