@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36414.22 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SecurityToolKitV2.0", "SecurityToolKitV2.0\SecurityToolKitV2.0.vcxproj", "{C6BDE162-3C91-4C7A-93D9-5428B24A1814}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C6BDE162-3C91-4C7A-93D9-5428B24A1814}.Debug|x64.ActiveCfg = Debug|x64
+		{C6BDE162-3C91-4C7A-93D9-5428B24A1814}.Debug|x64.Build.0 = Debug|x64
+		{C6BDE162-3C91-4C7A-93D9-5428B24A1814}.Debug|x86.ActiveCfg = Debug|Win32
+		{C6BDE162-3C91-4C7A-93D9-5428B24A1814}.Debug|x86.Build.0 = Debug|Win32
+		{C6BDE162-3C91-4C7A-93D9-5428B24A1814}.Release|x64.ActiveCfg = Release|x64
+		{C6BDE162-3C91-4C7A-93D9-5428B24A1814}.Release|x64.Build.0 = Release|x64
+		{C6BDE162-3C91-4C7A-93D9-5428B24A1814}.Release|x86.ActiveCfg = Release|Win32
+		{C6BDE162-3C91-4C7A-93D9-5428B24A1814}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {8F08B6A6-F563-4FAD-B22A-E336D3600DBC}
+	EndGlobalSection
+EndGlobal
