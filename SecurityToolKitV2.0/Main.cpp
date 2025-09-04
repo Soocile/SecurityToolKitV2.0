@@ -10,10 +10,13 @@ int main(int argc, char* argv[]) {
 	std::cout << "Security Toolkit V2.0.0" << std::endl;
 	std::cout << "--------------------------" << std::endl;
 	Logger::instance().log(LogLevel::INFO, "Application started.");
-
+	/*
 	std::string signatureFile = "C:\\projects\\SecurityToolKitV2.0\\SecurityToolKitV2.0\\signatures\\malware_signatures.txt"; 
 	std::string whitelistFile = "C:\\projects\\SecurityToolKitV2.0\\SecurityToolKitV2.0\\WhiteList\\WhiteList.txt"; 
+	*/
 
+	std::string signatureFile = ".\\malware_signatures.txt";
+	std::string whitelistFile = ".\\WhiteList.txt";
 
 	if (!RiskAnalyzer::initialize(signatureFile, whitelistFile)) {
 		std::cerr << "Engine initialization failed. Exiting." << std::endl;

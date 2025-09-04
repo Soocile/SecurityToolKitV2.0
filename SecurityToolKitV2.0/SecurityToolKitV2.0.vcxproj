@@ -126,6 +126,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Main.cpp" />
+    <ClCompile Include="Network\PacketSniffer\PacketSniffer.cpp" />
     <ClCompile Include="src\FileWatcher.cpp" />
     <ClCompile Include="src\HeuristicEngine.cpp" />
     <ClCompile Include="src\Logger.cpp" />
@@ -145,6 +146,15 @@
     <ClInclude Include="include\RiskAnalyzer.hpp" />
     <ClInclude Include="include\SignatureEngine.hpp" />
     <ClInclude Include="include\WhiteListManager.hpp" />
+    <ClInclude Include="Network\PacketSniffer\Headers\DNS_HEADER.h" />
+    <ClInclude Include="Network\PacketSniffer\Headers\FTP_HEADER.h" />
+    <ClInclude Include="Network\PacketSniffer\Headers\HTTP_HEADER.h" />
+    <ClInclude Include="Network\PacketSniffer\Headers\ICMP_HEADER.h" />
+    <ClInclude Include="Network\PacketSniffer\Headers\IPV4_HEADER.h" />
+    <ClInclude Include="Network\PacketSniffer\Headers\IPV6_HEADER.h" />
+    <ClInclude Include="Network\PacketSniffer\Headers\TCP_HEADER.H" />
+    <ClInclude Include="Network\PacketSniffer\Headers\UDP_HEADER.H" />
+    <ClInclude Include="Network\PacketSniffer\PacketSniffer.hpp" />
     <ClInclude Include="Utils\NonCopyable.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

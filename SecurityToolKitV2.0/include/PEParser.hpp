@@ -33,16 +33,16 @@ namespace pe {
 
 	struct IMAGE_OPTIONAL_HEADER32 {
 		uint16_t Magic;
-		// ... (Diðer alanlar)
+		//other fields
 		uint32_t AddressOfEntryPoint;
 		uint32_t BaseOfCode;
 		uint32_t BaseOfData;
 		uint32_t ImageBase;
 		uint32_t SectionAlignment;
 		uint32_t FileAlignment;
-		// ... (Diðer alanlar)
+		//other fields
 		uint32_t SizeOfImage;
-		// ... (Diðer alanlar)
+		//other fields
 	};
 
 	struct IMAGE_DOS_HEADER {
