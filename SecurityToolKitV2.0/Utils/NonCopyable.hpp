@@ -19,7 +19,7 @@ protected:
 
 	//moving prohibited
 	NonCopyable(NonCopyable&&) = delete;
-	NonCopyable operator=(NonCopyable&&) = delete;
+	NonCopyable& operator=(NonCopyable&&) = delete;
 };
 
 

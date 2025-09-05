@@ -1,236 +1,374 @@
 
 #include"../include/HeuristicEngine.hpp"
 #include"../Logger.hpp"
-#include<map>
-#include<cmath>
 
-double HeuristicEngine::getEntropy(const std::vector<uint8_t>& data) {
+#undef min
+
+#include <map>
+#include <cmath>
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <cstring>
+#include <limits>
+
+#undef max
 
 
-	if (data.empty()) {
-		return 0.0;
-	}
+// ---------- Helper utilities ----------
 
-	std::map<uint8_t, size_t> byteCounts;
+ double HeuristicEngine::computeEntropyForBuffer(const uint8_t* buf, size_t len) {
 
-	for (uint8_t byte : data) {
-		byteCounts[byte]++;
-	}
+	if (len == 0) return 0.0;
 
+	std::array<uint32_t, 256> counts{};
+	counts.fill(0);
+
+	for (size_t i = 0; i < len; ++i) counts[buf[i]]++;
 
 	double entropy = 0.0;
-	const double dataSize = static_cast<double>(data.size());
+	const double N = static_cast<double>(len);
 
-	for (auto const& [byte, count] : byteCounts) {
-		double p = static_cast<double>(count) / dataSize; // probability of the byte
-		//Applying Shannon Entropy Formula
-		entropy -= p * log2(p);
+	for (int i = 0; i < 256; ++i) {
+		if (counts[i] == 0) continue;
+		double p = static_cast<double>(counts[i]) / N;
+		entropy -= p * std::log2(p);//Shannon's entropy formula
 	}
-
 	return entropy;
 }
 
+ std::string HeuristicEngine::safeSectionName(const IMAGE_SECTION_HEADER& s) {
 
-
-double HeuristicEngine::checkNOPFlood(const std::vector<uint8_t>& data) {
-    if (data.empty()) {
-        return 0.0;
-    }
-
-    // NOP benzeri veya anlamsýz komutlarý tanýmlýyoruz.
-    // Bu komutlar, zararlý yazýlýmýn koduna boþluk eklemesinde kullanýlýr.
-    const std::vector<uint8_t> suspiciousNops = {
-        0x90,       // NOP
-        0xCC,       // INT 3 (Debugger breakpoint)
-        0xEB, 0xFE, // JMP $ (infinite loop)
-        0xEB, 0x01, // JMP +1 (pass the next byte)
-        0xF4        // HLT (Stop the processor)
-    };
-
-    size_t suspiciousCount = 0;
-
-    for (size_t i = 0; i < data.size(); ++i) {
-        // 1 Byte NOP control
-        if (data[i] == 0x90 || data[i] == 0xCC || data[i] == 0xF4) {
-            suspiciousCount++;
-            continue;
-        }
-
-        // 2 Byte NOP control
-        if (i + 1 < data.size()) {
-            if ((data[i] == 0xEB && data[i + 1] == 0xFE) ||
-                (data[i] == 0xEB && data[i + 1] == 0x01)) {
-                suspiciousCount += 2;
-                i += 1; // Ýkinci baytý atla
-            }
-        }
-    }
-
-    //calculate the NOP ratio
-    double nopRatio = static_cast<double>(suspiciousCount) / data.size();
-
-    return nopRatio;
+	const char* p = reinterpret_cast<const char*>(s.Name);
+	size_t len = 0;
+	while (len < 8 && p[len] != '\0') ++len;
+	return std::string(p, len);
 }
 
-double HeuristicEngine::checkSuspiciousStrings(const std::vector<uint8_t>& data) {
-    double score = 0.0;
+// Case-insensitive find for ASCII in a std::string
+ bool HeuristicEngine::contains_ci_ascii(const std::string& hay, const std::string& needle) {
+	if (needle.empty() || hay.size() < needle.size()) return false;
+	// make lower once? but faster to do find with transform on the fly
+	std::string lower_hay; lower_hay.resize(hay.size());
 
-    const std::map<std::string, double> suspiciousStrings = {
-     {"CreateRemoteThread", 10.0},
-     {"VirtualAllocEx", 10.0},
-     {"WriteProcessMemory", 10.0},
-     {"OpenProcess", 8.0},
-     {"LoadLibraryA", 5.0},
-     {"URLDownloadToFile", 8.0},
-     {"DeleteService", 8.0},
-     {"StartServiceCtrlDispatcher", 8.0},
-     {"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", 5.0},
-     {"cmd.exe", 7.0},
-     {"powershell.exe", 7.0}
-    };
+	std::transform(hay.begin(), hay.end(), lower_hay.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-    //transforming bytes to the string
-    std::string filecontent(data.begin(), data.end());
+	std::string lower_need; lower_need.resize(needle.size());
+	std::transform(needle.begin(), needle.end(), lower_need.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-    //searching for suspicious strings
-    for (const auto& pair : suspiciousStrings) {
-        if (filecontent.find(pair.first) != std::string::npos) {
-
-            score += pair.second;
-            Logger::instance().log(
-                LogLevel::WARNING,
-                "Suspicious string found: " + pair.first
-            );
-        }
-    }
-
-    return score;
+	return lower_hay.find(lower_need) != std::string::npos;
 }
 
-double HeuristicEngine::CheckPEHeader(const pe::Parser& peParser) {
-    double score = 0.0;
+// check for UTF-16LE presence of an ASCII string (very common in PE resources/strings)
+ bool HeuristicEngine::contains_utf16le(const std::vector<uint8_t>& data, const std::string& ascii) {
+	if (ascii.empty()) return false;
+	// pattern: e.g. 'C' 0x00 'r' 0x00 ...
+	size_t n = ascii.size();
+	if (data.size() < 2 * n) return false;
+	for (size_t i = 0; i + 2 * n <= data.size(); ++i) {
+		bool ok = true;
+		for (size_t j = 0; j < n; ++j) {
+			if (data[i + j * 2] != static_cast<uint8_t>(ascii[j]) || data[i + j * 2 + 1] != 0x00) { ok = false; break; }
+		}
+		if (ok) return true;
+	}
+	return false;
+}
 
-    //control the entry point offset
+// ---------- HeuristicEngine methods ----------
 
-    uint32_t entrPointRVA = peParser.getEntryPointRVA();
+double HeuristicEngine::getEntropy(const std::vector<uint8_t>& data) {
+	if (data.empty()) return 0.0;
+	return computeEntropyForBuffer(data.data(), data.size());
+}
 
-    bool isEntryPointInCodeSection = false;
+double HeuristicEngine::CheckNOPFlood(const std::vector<uint8_t>& data) {
 
-    for (const auto& section : peParser.getSections()) {
+	// Returns a heuristic *score* (0..20) based on density and runs of NOP-like bytes.
+	if (data.empty()) return 0.0;
 
-        if (entrPointRVA >= section.VirtualAddress &&
-            entrPointRVA < (section.VirtualAddress + section.Misc_VirtualSize)) {
+	size_t total = data.size();
+	size_t suspiciousCount = 0;
+	size_t maxRun = 0;
+	size_t curRun = 0;
 
-            //if the section is executable
+	auto isSuspByte = [](uint8_t b)->bool {
+		return b == 0x90 || b == 0xCC || b == 0xF4; // NOP, INT3, HLT
+		};
 
-            if (section.Characteristics & 0x20000000) {// IMAGE_SCN_MEM_EXECUTE
 
-                isEntryPointInCodeSection = true;
-            }
+	for (size_t i = 0; i < total; ++i) {
+		if (isSuspByte(data[i])) {
+			suspiciousCount++;
+			curRun++;
+		}
+		else {
+			// also check 2-byte constructs e.g. EB FE, EB 01 by peeking previous byte pairs
+			if (i > 0) {
+				uint8_t a = data[i - 1];
+				uint8_t b = data[i];
+				if ((a == 0xEB && b == 0xFE) || (a == 0xEB && b == 0x01)) {
+					// count as part of suspicious run (we already may have counted them individually)
+					// ensure curRun increment (but don't double count)
+					// Simple approach: treat these as suspicious pair markers by artificially boosting curRun
+					curRun += 1;
+					suspiciousCount += 1;
+				}
+			}
+			if (curRun > maxRun) maxRun = curRun;
+			curRun = 0;
+		}
+	}
+	if (curRun > maxRun) maxRun = curRun;
 
-            break;
-        }
-    }
+	double ratio = static_cast<double>(suspiciousCount) / static_cast<double>(total); // 0..1
+	// Score policy: small ratios are fine; larger ratios => bigger score.
+	// Map ratio to 0..12 score; add bonus if there is a very long run (>64)
+	double score = std::min(12.0, ratio * 200.0); // e.g. ratio 0.05 => 10
+	if (maxRun > 64) score += 6.0; // contiguous filler segment -> big suspicion
+	if (score > 18.0) score = 18.0;
+	return score;
 
-    if (!isEntryPointInCodeSection) {
-        score += 20.0;
-        Logger::instance().log(
-            LogLevel::WARNING,
-            "Heuristic: Entry point is not in a executable section."
-        );
-    }
+}
 
-    //control the section names
-    //Unnormal section names are suspicious
-    
-    for (const auto& section : peParser.getSections()) {
-        std::string sectionName(reinterpret_cast<const char*>(section.Name));
-        if (sectionName.length() == 0 ||
-            sectionName == ".text" ||
-            sectionName == ".data" ||
-            sectionName == ".rdata" ||
-            sectionName == ".rsrc" ||
-            sectionName == ".reloc") {
-            continue; // Normal section names
-        }
+double HeuristicEngine::CheckSuspiciousStrings(const std::vector<uint8_t>& data) {
+	
+	//  - ASCII, case-insensitive search for suspicious API names
+	//  - UTF-16LE search for same strings (common in resources/imports)
+	//  - Score weighting per string
+	double score = 0.0;
 
-        //General suspicious section names:
+	const std::map<std::string, double> suspiciousStrings = {
+		{"CreateRemoteThread", 10.0},
+		{"VirtualAllocEx", 10.0},
+		{"WriteProcessMemory", 10.0},
+		{"OpenProcess", 8.0},
+		{"LoadLibraryA", 5.0},
+		{"URLDownloadToFile", 8.0},
+		{"DeleteService", 8.0},
+		{"StartServiceCtrlDispatcher", 8.0},
+		{"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", 5.0},
+		{"cmd.exe", 7.0},
+		{"powershell.exe", 7.0}
+	};
 
-        if (sectionName == ".upx" || sectionName == "UPX0" || sectionName == "UPX1") {
-            score += 15.0; // Packers like UPX
-            Logger::instance().log(
-                LogLevel::WARNING,
-                "Heuristic: Suspicious section name found (packer): " + sectionName
-            );
-        }
-        else {
-            score += 5.0; // Other Unnormal names
-            Logger::instance().log(
-                LogLevel::WARNING,
-                "Heuristic: Suspicious section name found: " + sectionName
-            );
-        }
-    }
+	// transform bytes -> ASCII string for quick search (non-printable become dot)
+	std::string ascii;
+	ascii.reserve(data.size());
+	for (uint8_t b : data) {
+		ascii.push_back(static_cast<char>(b));
+	}
 
-    //Control the section amount
-    // An abnormally large number of sections may indicate a code injection or obfuscation technique.
+	for (const auto& kv : suspiciousStrings) {
+		const std::string& needle = kv.first;
+		double w = kv.second;
+		bool found = false;
+		// ascii case-insensitive
+		if (contains_ci_ascii(ascii, needle)) found = true;
+		// unicode (utf-16le) pattern:
+		if (!found && contains_utf16le(data, needle)) found = true;
+		if (found) {
+			score += w;
+			Logger::instance().log(LogLevel::WARNING, "Suspicious string/import candidate found: " + needle);
+		}
+	}
 
-    if (peParser.getSections().size() > 10) {
-        score += 10;
-        Logger::instance().log(
-            LogLevel::WARNING,
-            "Heuristic: Too many sections found (" + std::to_string(peParser.getSections().size()) + ")."
-        );
-    }
+	return score;
+}
 
-    return score;
+double HeuristicEngine::CheckImportsWithParser(pe::Parser& parser) {
+	// Try to parse imports (parser may throw)
+	double score = 0.0;
+	try {
+		parser.parseImports(); // Parser implementation populates parser.imports
+		for (const auto& lib : parser.imports) {
+			// Commonly abused APIs
+			for (const auto& fn : lib.functions) {
+				std::string fname = fn.byOrdinal ? ("#" + std::to_string(fn.ordinal)) : fn.name;
+				// lower-case simple
+				std::string fname_l = fname;
+				std::transform(fname_l.begin(), fname_l.end(), fname_l.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+				if (fname_l.find("createremotethread") != std::string::npos ||
+					fname_l.find("writeprocessmemory") != std::string::npos ||
+					fname_l.find("virtualallocex") != std::string::npos ||
+					fname_l.find("openprocess") != std::string::npos) {
+					score += 12.0;
+					Logger::instance().log(LogLevel::WARNING, "Import heuristic: suspicious imported function: " + fname + " from " + lib.dllName);
+				}
+				else if (fname_l.find("urldownloadtofile") != std::string::npos ||
+					fname_l.find("shellexecute") != std::string::npos ||
+					fname_l.find("loadlibrary") != std::string::npos) {
+					score += 6.0;
+					Logger::instance().log(LogLevel::WARNING, "Import heuristic: network / loader function: " + fname + " from " + lib.dllName);
+				}
+			}
+		}
+	}
+	catch (const pe::PeFormatException& ) {
+		// parser couldn't parse imports — ignore (we already log elsewhere)
+	}
+	// cap reasonable
+	if (score > 30.0) score = 30.0;
+	return score;
+}
+
+
+
+// ---------- PE header checks (main improvement) ----------
+// NOTE: signature changed: now takes parser AND the raw file bytes to compute overlay and section-bytes entropy.
+double HeuristicEngine::CheckPEHeader(const pe::Parser& peParser, const std::vector<uint8_t>& fileData) {
+	double score = 0.0;
+
+	// 1) EntryPoint location
+	try {
+		uint32_t entryRVA = peParser.getEntryPointRVA();
+		bool entryInExecSection = false;
+		uint32_t lastSectionRawEnd = 0;
+
+		for (const auto& section : peParser.getSections()) {
+			// safe virtual size: use union field
+			uint32_t vsize = section.Misc.VirtualSize;
+			uint32_t rawSize = section.SizeOfRawData;
+			uint32_t covered = std::max(vsize, rawSize);
+
+			// track raw end to detect overlays later
+			uint32_t rawEnd = section.PointerToRawData + rawSize;
+			if (rawEnd > lastSectionRawEnd) lastSectionRawEnd = rawEnd;
+
+			if (entryRVA >= section.VirtualAddress && entryRVA < (section.VirtualAddress + covered)) {
+				// check execute flag
+				if (section.Characteristics & IMAGE_SCN_MEM_EXECUTE) {
+					entryInExecSection = true;
+				}
+				break;
+			}
+		}
+
+		if (!entryInExecSection) {
+			score += 25.0;
+			Logger::instance().log(LogLevel::WARNING, "Heuristic: Entry point not in an executable section.");
+		}
+
+		// 2) Overlay detection (file size after last section raw end)
+		size_t fileSize = fileData.size();
+		if (fileSize > lastSectionRawEnd + 16) { // allow small alignment/PAD
+			size_t overlaySize = fileSize - lastSectionRawEnd;
+			double overlayScore = std::min(10.0, static_cast<double>(overlaySize) / 1024.0); // 1 point per KB up to 10
+			Logger::instance().log(LogLevel::INFO, "Overlay detected: " + std::to_string(overlaySize) + " bytes.");
+			score += overlayScore;
+		}
+
+		// 3) Section name & count checks + packer detection and section entropy
+		size_t sectionCount = peParser.getSections().size();
+		if (sectionCount > 15) {
+			score += 10.0;
+			Logger::instance().log(LogLevel::WARNING, "Heuristic: High section count: " + std::to_string(sectionCount));
+		}
+
+		for (const auto& section : peParser.getSections()) {
+			std::string sname = safeSectionName(section);
+			if (sname.empty() || sname == ".text" || sname == ".data" || sname == ".rdata" || sname == ".rsrc" || sname == ".reloc") {
+				// normal
+			}
+			else if (sname == ".upx" || sname == "UPX0" || sname == "UPX1") {
+				score += 18.0;
+				Logger::instance().log(LogLevel::WARNING, "Heuristic: UPX/packer section: " + sname);
+			}
+			else {
+				// suspicious other names
+				score += 5.0;
+				Logger::instance().log(LogLevel::WARNING, "Heuristic: Unusual section name: " + sname);
+			}
+
+			// per-section entropy (use raw data)
+			uint32_t rawSize = section.SizeOfRawData;
+			uint32_t rawPtr = section.PointerToRawData;
+			if (rawSize > 0 && rawPtr + rawSize <= fileData.size()) {
+				double ent = computeEntropyForBuffer(fileData.data() + rawPtr, rawSize);
+				if (ent > 7.5) {
+					score += 10.0; // high entropy -> possibly packed/encrypted code
+					Logger::instance().log(LogLevel::WARNING, "Heuristic: High entropy in section " + sname + " -> " + std::to_string(ent));
+				}
+				else if (ent > 6.5) {
+					score += 3.0; // suspicious but not definitive
+				}
+			}
+		}
+
+		// 4) Import-based heuristics (call parser to get imports)
+		{
+			// Need non-const parser for parseImports; try to cast away const or ask caller to pass non-const.
+			// Safer: rely on parser.parseImports which was non-const in our Parser — so we will const_cast.
+			try {
+				pe::Parser& pnon = const_cast<pe::Parser&>(peParser);
+				double impScore = CheckImportsWithParser(pnon);
+				score += impScore;
+			}
+			catch (...) {
+				Logger::instance().log(LogLevel::INFO,
+					"PE header analysis skipped (invalid PE).");
+				return 0.0;
+			}
+		}
+
+	}
+	catch (const pe::PeFormatException& e) {
+		Logger::instance().log(LogLevel::INFO, "PE header analysis skipped (invalid PE).");
+		return 0.0;
+	}
+
+	return score;
 }
 
 HeuristicResult HeuristicEngine::analyze(const std::vector<uint8_t>& data) {
 
-    HeuristicResult result;
-    double totalScore = 0.0;
+	HeuristicResult result;
+	double totalScore = 0.0;
 
-    totalScore += checkNOPFlood(data);
-    
-    double entropy = getEntropy(data);
+	// 1) NOP flood -> returns a heuristic score
+	totalScore += CheckNOPFlood(data);
 
-    if (entropy > 7.0) {
+	// 2) Whole-file entropy
+	double entropy = getEntropy(data);
+	if (entropy > 7.0) {
+		totalScore += 22.0;
+		Logger::instance().log(LogLevel::WARNING, "Heuristic: High global entropy detected. Entropy: " + std::to_string(entropy));
+	}
+	else if (entropy > 6.5) {
+		totalScore += 6.0;
+	}
 
-        totalScore += 20.0;
-        Logger::instance().log(
-            LogLevel::WARNING,
-            "Heuristic: High entropy detected. Entropy: " + std::to_string(entropy)
-        );
-    }
+	// 3) Suspicious strings (ASCII + UTF-16LE)
+	totalScore += CheckSuspiciousStrings(data);
 
-    totalScore += checkSuspiciousStrings(data);
+	// 4) PE Header related heuristics (uses Parser + file data)
+	try {
+		pe::Parser peParser(data);
+		// call our new signature that accepts file bytes
+		totalScore += CheckPEHeader(peParser, data);
+	}
+	catch (const pe::PeFormatException& ) {
+		// not a PE -> no PE heuristics
+		Logger::instance().log(LogLevel::INFO, "File is not a valid PE format. PE header analysis skipped.");
+	}
 
-    try {
-        pe::Parser peParser(data);
-        totalScore += CheckPEHeader(peParser);
-    }
-    catch (const PeFormatException& e) {
-       //it does not affect the heuristic score if it is not a valid PE format.
-        Logger::instance().log(LogLevel::INFO, "File is not a valid PE format. PE header analysis skipped.");
-    }
+	// Decision thresholds — tuned conservatively
+	if (totalScore >= 40.0) {
+		result.isSuspicious = true;
+		result.score = totalScore;
+		result.details = "High heuristic score (" + std::to_string(totalScore) + ") suggests malicious behavior.";
+	}
+	else if (totalScore >= 15.0) {
+		result.isSuspicious = false;
+		result.score = totalScore;
+		result.details = "Low-to-moderate heuristic score (" + std::to_string(totalScore) + "). Review recommended.";
+	}
+	else {
+		result.isSuspicious = false;
+		result.score = totalScore;
+		result.details = "No suspicious behavior detected.";
+	}
 
-    //Make a decision based on your heuristic score
-    if (totalScore >= 30.0) {
-        result.isSuspicious = true;
-        result.score = totalScore;
-        result.details = "High heuristic score (" + std::to_string(totalScore) + ") suggests malicious behavior.";
-    }
-    else if (totalScore > 0) {
-        result.isSuspicious = false;
-        result.score = totalScore;
-        result.details = "Low heuristic score. Potentially benign.";
-    }
-    else {
-        result.isSuspicious = false;
-        result.score = 0;
-        result.details = "No suspicious behavior detected.";
-    }
-
-    return result;
+	return result;
 }

@@ -45,6 +45,7 @@ public:
 	static bool scanFile(const std::vector<uint8_t>& fileData, const std::string& filePath, std::string& detectedThreat);
 
 private:
+	static std::once_flag initFlag;
 	static bool isInitialized;
 	static std::vector<Sig> signatures;
 

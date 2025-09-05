@@ -11,6 +11,7 @@
 
 bool SignatureEngine::isInitialized = false;
 std::vector<Sig> SignatureEngine::signatures;
+std::once_flag SignatureEngine::initFlag;
 
 
 //-----------------------------HELPER FUNCTIONS------------------------------
@@ -158,58 +159,57 @@ bool SignatureEngine::parseConstraint(const std::string& sIn, OffsetConstraint& 
 
  bool SignatureEngine::loadSignatures(const std::string& signatureFile) {
 
-	 if (isInitialized) {
-		 return true; // Already uploaded
-	 }
+	 std::call_once(initFlag, [&]() {
 
-	 std::ifstream file(signatureFile);
-	 if (!file.is_open()) {
-		 // Error:file could not open
-		 return false;
-	 }
-
-	 std::string line;
-
-	 while (std::getline(file, line)) {
-		 trim(line);
-		 if (line.empty() || line.front() == '#') {
-			 continue;
+		 std::ifstream file(signatureFile);
+		 if (!file.is_open()) {
+			 // Error:file could not open
+			 throw std::runtime_error("Failed to open signature file");
+			
 		 }
 
-		 Sig sig;
-
-		 //separate the signature name and pattern
-		 auto colon = line.find(':');
-
-		 if (colon == std::string::npos) {
-			 continue;//invalid format
-		 }
-
-		 sig.name = line.substr(0, colon);
-		 trim(sig.name);
-		 std::string rest = line.substr(colon + 1);
-
-		 //separate the pattern and the restriction
-
-		 auto at = rest.find('@');
-		 std::string patternStr = rest.substr(0, at);
-		 trim(patternStr);
-
-		 if (!parsePattern(patternStr, sig.bytes)) {
-			 continue; 
-		 }
-		 //check for restriction
-		 if (at != std::string::npos) {
-			 std::string constraintStr = rest.substr(at + 1);
-			 if (!parseConstraint(constraintStr, sig.pos)) {
-				 continue; 
+		 std::string line;
+		 while (std::getline(file, line)) {
+			 trim(line);
+			 if (line.empty() || line.front() == '#') {
+				 continue;
 			 }
+
+			 Sig sig;
+
+			 //separate the signature name and pattern
+			 auto colon = line.find(':');
+
+			 if (colon == std::string::npos) {
+				 continue;//invalid format
+			 }
+
+			 sig.name = line.substr(0, colon);
+			 trim(sig.name);
+			 std::string rest = line.substr(colon + 1);
+
+			 //separate the pattern and the restriction
+
+			 auto at = rest.find('@');
+			 std::string patternStr = rest.substr(0, at);
+			 trim(patternStr);
+
+			 if (!parsePattern(patternStr, sig.bytes)) {
+				 continue;
+			 }
+			 //check for restriction
+			 if (at != std::string::npos) {
+				 std::string constraintStr = rest.substr(at + 1);
+				 if (!parseConstraint(constraintStr, sig.pos)) {
+					 continue;
+				 }
+			 }
+
+			 signatures.push_back(sig);
 		 }
 
-		 signatures.push_back(sig);
-	 }
-
-	 isInitialized = true;
+		 isInitialized = true;
+		 });
 	 return true;
 
  }

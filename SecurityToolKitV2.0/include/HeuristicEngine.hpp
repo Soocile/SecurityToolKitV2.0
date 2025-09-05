@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <string>
 #include"../include/PEParser.hpp"
+#include<array>
 
 //holds the heuristic analyze results
 struct HeuristicResult {
@@ -18,23 +19,27 @@ struct HeuristicResult {
 class HeuristicEngine {
 
 public:
-
-	//makes heuristic analyze using the bytes on a file
-	static HeuristicResult analyze(const std::vector<uint8_t>& fileData);
+	static HeuristicResult analyze(const std::vector<uint8_t>& data);
+	
 
 private:
 
 	//Helper Functions
+	static double computeEntropyForBuffer(const uint8_t* buf, size_t len);
+	static std::string safeSectionName(const IMAGE_SECTION_HEADER& section_header);
+	
+	static bool contains_utf16le(const std::vector<uint8_t>& data, const std::string& ascii);
+	static bool contains_ci_ascii(const std::string& hay, const std::string& needle);
+
 	static double getEntropy(const std::vector<uint8_t>& data);
-	static double checkNOPFlood(const std::vector<uint8_t>& data);
-	static double checkSuspiciousStrings(const std::vector<uint8_t>& data);
-	static double CheckPEHeader(const pe::Parser& peParser);
+	static double CheckNOPFlood(const std::vector<uint8_t>& data);
+	static double CheckSuspiciousStrings(const std::vector<uint8_t>& data);
+	static double CheckImportsWithParser(pe::Parser& parser);
+	static double CheckPEHeader(const pe::Parser& peParser, const std::vector<uint8_t>& file_data);
 
+	
 
-	//Threshold values ​​for heuristic scoring
-	static constexpr double ENTROPY_THRESHOLD = 7.5;
-	static constexpr double NOPFLOOD_THRESHOLD = 0.5;
-	static constexpr double MAX_SCORE = 100.0;
+	
 
 };
 

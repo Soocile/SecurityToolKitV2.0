@@ -11,6 +11,7 @@
 #include <map>
 #include"../Utils/NonCopyable.hpp"
 
+#undef ERROR
 
 //defines the log levels
 enum class LogLevel {
